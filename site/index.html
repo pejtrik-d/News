@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#10151c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Přehled konfliktů</title>
+<style>
+:root{color-scheme:dark;--bg:#10151c;--surface:#171e28;--line:#253041;--text:#e7ebf1;--muted:#8794a8;
+--s1:#5d7a99;--s2:#6f9bb8;--s3:#d6b25e;--s4:#ec9a4f;--s5:#e8604f;--accent:#7fb3d5;
+--t-nezávislé:#7fb3d5;--t-veřejnoprávní:#78c2a4;--t-státní:#d08c9c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 64px}
+header{padding:12px 0 18px}
+h1{font:600 28px/1.2 Georgia,"Times New Roman",serif;margin:0 0 4px;letter-spacing:-.01em}
+#updated{color:var(--muted);font-size:14px}
+.bar{position:sticky;top:0;z-index:5;background:linear-gradient(var(--bg) 85%,transparent);padding:10px 0 14px;display:grid;gap:10px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,input,select{font:inherit;color:inherit}
+.chip{background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer;font-size:14px}
+.chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#0c1218;font-weight:600}
+input[type=search],select{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:0}
+input[type=search]{flex:1 1 160px}
+label.min{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:14px;flex:1 1 220px}
+input[type=range]{flex:1;accent-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#count{color:var(--muted);font-size:14px;margin:6px 0 10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.link{background:none;border:0;color:var(--accent);cursor:pointer;padding:0;font-size:14px}
+article{display:grid;grid-template-columns:52px 1fr;gap:14px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;position:relative;overflow:hidden}
+article::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--c)}
+article.hid{opacity:.5}
+.score{text-align:center;color:var(--c)}
+.score b{display:block;font:700 26px/1 Georgia,serif}
+.score small{color:var(--muted);font-size:12px}
+h2{font:600 19px/1.3 Georgia,"Times New Roman",serif;margin:0 0 6px}
+h2 a{color:inherit;text-decoration:none}
+h2 a:hover{text-decoration:underline;text-decoration-color:var(--c);text-underline-offset:3px}
+.meta{color:var(--muted);font-size:13px;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.tag{color:var(--c)}
+.new{background:var(--accent);color:#0c1218;border-radius:6px;padding:0 6px;font-weight:600;font-size:12px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:var(--tc)}
+p{margin:0;color:#c3cbd8;font-size:15px}
+.also{margin-top:10px;font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 14px}
+.also a{color:var(--text);text-decoration:none;border-bottom:1px solid var(--line)}
+.views{color:var(--t-státní);font-size:13px;margin-top:8px}
+.acts{display:flex;gap:8px;margin-top:12px}
+.act{background:none;border:1px solid var(--line);border-radius:8px;padding:3px 12px;font-size:13px;color:var(--muted);cursor:pointer}
+.act[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.empty{text-align:center;color:var(--muted);padding:48px 0}
+@media(max-width:480px){article{grid-template-columns:40px 1fr;padding:14px}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Přehled konfliktů</h1>
+    <div id="updated">Načítám zprávy…</div>
+  </header>
+  <div class="bar">
+    <div class="row" id="topics" role="group" aria-label="Téma"></div>
+    <div class="row">
+      <input type="search" id="q" placeholder="Hledat v nadpisech" aria-label="Hledat">
+      <select id="type" aria-label="Typ zdroje"></select>
+      <select id="sort" aria-label="Řazení">
+        <option value="score">Podle důležitosti</option>
+        <option value="ts">Od nejnovějších</option>
+      </select>
+      <button class="chip" id="onlyNew" aria-pressed="false">Jen nové</button>
+    </div>
+    <label class="min">Minimální důležitost <input type="range" id="min" min="1" max="5" value="1"><span id="minv">1+</span></label>
+  </div>
+  <div id="count"></div>
+  <main id="list"></main>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = {1:'var(--s1)',2:'var(--s2)',3:'var(--s3)',4:'var(--s4)',5:'var(--s5)'};
+const ls = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch(e) { return d; } };
+const sv = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} };
+const state = Object.assign({topic:'Vše', q:'', min:1, sort:'score', type:'Vše', onlyNew:false, showHidden:false}, ls('ctecka', {}));
+let votes = ls('votes', {});          // odkaz -> 1 (důležité) nebo -1 (skrýt)
+const prevVisit = ls('visit', 0);     // kdy jsi stránku naposledy opustil
+let data = {items:[], topics:[], types:[]};
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const stars = s => s >= 70 ? 5 : s >= 52 ? 4 : s >= 36 ? 3 : s >= 24 ? 2 : 1;  // stejné hranice jako v Pythonu
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const save = () => sv('ctecka', state);
+
+function ago(ts){
+  const m = Math.round((Date.now()/1000 - ts)/60);
+  if (m < 60) return `před ${Math.max(m,1)} min`;
+  const h = Math.round(m/60);
+  return h < 24 ? `před ${h} h` : `před ${Math.round(h/24)} dny`;
+}
+
+// Tvoje hlasy upravují skóre: téma a zdroj, které označuješ jako důležité, rostou, skrývané klesají.
+function adjust(){
+  const t = {}, s = {};
+  data.items.forEach(i => { const v = votes[i.link]; if (!v) return;
+    t[i.topic] = (t[i.topic] || 0) + v; s[i.source] = (s[i.source] || 0) + v; });
+  return i => {
+    let v = i.score + clamp((t[i.topic] || 0) * 3, -12, 12) + clamp((s[i.source] || 0) * 2, -8, 8);
+    if (votes[i.link] === 1) v += 15;
+    return clamp(Math.round(v), 0, 100);
+  };
+}
+
+function renderControls(){
+  $('topics').innerHTML = ['Vše', ...data.topics].map(t =>
+    `<button class="chip" aria-pressed="${t===state.topic}" data-t="${esc(t)}">${esc(t)}</button>`).join('');
+  $('type').innerHTML = ['Vše', ...data.types].map(t =>
+    `<option value="${esc(t)}">${t === 'Vše' ? 'Všechny zdroje' : 'Zdroje: ' + esc(t)}</option>`).join('');
+  $('q').value = state.q; $('sort').value = state.sort; $('type').value = state.type; $('min').value = state.min;
+}
+
+function render(){
+  const eff = adjust(), q = state.q.toLowerCase();
+  const all = data.items.map(i => Object.assign({}, i, {s: eff(i)}));
+  const hiddenCount = all.filter(i => votes[i.link] === -1).length;
+  const items = all.filter(i =>
+      (state.showHidden || votes[i.link] !== -1) &&
+      (state.topic === 'Vše' || i.topic === state.topic) &&
+      (state.type === 'Vše' || i.types.includes(state.type)) &&
+      (!state.onlyNew || (prevVisit && i.first_seen > prevVisit)) &&
+      stars(i.s) >= state.min && (!q || i.title.toLowerCase().includes(q)))
+    .sort((a, b) => state.sort === 'ts' ? b.ts - a.ts : b.s - a.s || b.ts - a.ts);
+  $('count').innerHTML = `<span>${items.length} z ${all.length} událostí</span>` +
+    (hiddenCount ? `<button class="link" id="toggleHidden">${state.showHidden ? 'Znovu skrýt' : 'Zobrazit skryté'} (${hiddenCount})</button>` : '');
+  $('onlyNew').setAttribute('aria-pressed', state.onlyNew);
+  $('minv').textContent = state.min + '+';
+  $('list').innerHTML = items.length ? items.map(i => {
+    const st = stars(i.s), isNew = prevVisit && i.first_seen > prevVisit, v = votes[i.link];
+    const also = i.also.length ? `<div class="also"><span>Píší také:</span>${i.also.map(a =>
+      `<a href="${esc(a.link)}" target="_blank" rel="noopener" style="--tc:var(--t-${esc(a.type)})"><span class="dot"></span>${esc(a.source)}</a>`).join('')}</div>` : '';
+    const views = i.types.includes('státní') && i.types.length > 1
+      ? '<div class="views">Zprávu uvádí státní i jiné zdroje, porovnej si jejich pohled.</div>' : '';
+    return `<article class="${v === -1 ? 'hid' : ''}" style="--c:${COLORS[st]}">
+      <div class="score"><b>${i.s}</b><small>z 100</small></div>
+      <div><h2><a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a></h2>
+      <div class="meta"><span class="tag">${esc(i.topic)}</span>
+        <span style="--tc:var(--t-${esc(i.type)})"><span class="dot"></span>${esc(i.source)}</span>
+        <span>${ago(i.ts)}</span>${isNew ? '<span class="new">nové</span>' : ''}</div>
+      <p>${esc(i.summary)}</p>${also}${views}
+      <div class="acts">
+        <button class="act" data-v="1" data-l="${esc(i.link)}" aria-pressed="${v === 1}">Důležité</button>
+        <button class="act" data-v="-1" data-l="${esc(i.link)}" aria-pressed="${v === -1}">${v === -1 ? 'Vrátit' : 'Skrýt'}</button>
+      </div></div></article>`;
+  }).join('') : '<div class="empty">Žádné události neodpovídají filtru. Zkus snížit minimální důležitost.</div>';
+}
+
+$('topics').addEventListener('click', e => { const t = e.target.closest('[data-t]'); if (!t) return;
+  state.topic = t.dataset.t; save(); renderControls(); render(); });
+$('q').addEventListener('input', e => { state.q = e.target.value; save(); render(); });
+$('sort').addEventListener('change', e => { state.sort = e.target.value; save(); render(); });
+$('type').addEventListener('change', e => { state.type = e.target.value; save(); render(); });
+$('min').addEventListener('input', e => { state.min = +e.target.value; save(); render(); });
+$('onlyNew').addEventListener('click', () => { state.onlyNew = !state.onlyNew; save(); render(); });
+$('count').addEventListener('click', e => { if (e.target.id === 'toggleHidden') { state.showHidden = !state.showHidden; save(); render(); } });
+$('list').addEventListener('click', e => {
+  const b = e.target.closest('.act'); if (!b) return;
+  const l = b.dataset.l, v = +b.dataset.v;
+  if (votes[l] === v) delete votes[l]; else votes[l] = v;
+  sv('votes', votes); render();
+});
+
+const markVisit = () => sv('visit', Math.floor(Date.now() / 1000));
+addEventListener('pagehide', markVisit);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') markVisit(); });
+
+fetch('news.json', {cache:'no-store'}).then(r => r.json()).then(d => {
+  data = d;
+  const links = new Set(d.items.map(i => i.link));       // smaže hlasy ke článkům, které už z historie vypadly
+  Object.keys(votes).forEach(l => { if (!links.has(l)) delete votes[l]; });
+  sv('votes', votes);
+  $('updated').textContent = 'Aktualizováno ' + new Date(d.updated).toLocaleString('cs-CZ', {dateStyle:'medium', timeStyle:'short'});
+  renderControls(); render();
+}).catch(() => { $('updated').textContent = 'Zprávy se nepodařilo načíst. Zkus stránku obnovit.'; });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
